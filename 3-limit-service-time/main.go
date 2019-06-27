@@ -52,12 +52,6 @@ func HandleRequest(process func(), u *User) bool {
 	return <-channel
 }
 
-var start time.Time
-
-func init() {
-	start = time.Now()
-}
-
 func main() {
 	RunMockServer()
 }
