@@ -20,6 +20,7 @@ package main
 import (
 	"errors"
 	"log"
+	"time"
 )
 
 // SessionManager keeps track of all sessions from creation, updating
@@ -31,6 +32,7 @@ type SessionManager struct {
 // Session stores the session's data
 type Session struct {
 	Data map[string]interface{}
+	Dead bool
 }
 
 // NewSessionManager creates a new sessionManager
@@ -76,13 +78,38 @@ func (m *SessionManager) UpdateSessionData(sessionID string, data map[string]int
 	if !ok {
 		return ErrSessionNotFound
 	}
-
+	ch := make(chan bool)
 	// Hint: you should renew expiry of the session here
+	go counter(ch)
 	m.sessions[sessionID] = Session{
 		Data: data,
 	}
 
+	go deleter(ch, m, sessionID)
+
 	return nil
+}
+
+func deleter(channel chan bool, m *SessionManager, sessionID string) {
+	for {
+		b := <-channel
+		if b == true {
+			delete(m.sessions, sessionID)
+			return
+		}
+	}
+}
+
+func counter(channel chan bool) {
+	counter := 0
+	for {
+		time.Sleep(time.Second)
+		counter++
+		if counter > 4 {
+			channel <- true
+			return
+		}
+	}
 }
 
 func main() {
