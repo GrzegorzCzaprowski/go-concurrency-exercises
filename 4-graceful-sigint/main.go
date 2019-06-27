@@ -14,7 +14,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -29,13 +28,13 @@ func main() {
 
 	go func() {
 		<-sigs
-		proc.Stop()
+		go func() {
+			proc.Stop()
+		}()
+		<-sigs
+		os.Exit(0)
 	}()
 
-	go func() {
-		proc.Run()
-	}()
-
-	fmt.Println("asdsad")
+	proc.Run()
 	<-sigs
 }
