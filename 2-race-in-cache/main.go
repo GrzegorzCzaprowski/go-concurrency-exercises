@@ -24,6 +24,16 @@ type KeyStoreCache struct {
 	cache map[string]string
 	pages list.List
 	load  func(string) string
+	mutex mutex
+}
+
+type mutex chan struct{}
+
+func (m mutex) Lock() {
+	m <- struct{}{}
+}
+func (m mutex) Unlock() {
+	<-m
 }
 
 // New creates a new KeyStoreCache
@@ -36,6 +46,8 @@ func New(load KeyStoreCacheLoader) *KeyStoreCache {
 
 // Get gets the key from cache, loads it from the source if needed
 func (k *KeyStoreCache) Get(key string) string {
+	k.mutex.Lock()
+	defer k.mutex.Unlock()
 	val, ok := k.cache[key]
 
 	// Miss - load from database and save it in cache

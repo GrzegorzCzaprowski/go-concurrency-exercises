@@ -25,34 +25,48 @@ import (
 
 // SessionManager keeps track of all sessions from creation, updating
 // to destroying.
+type mutex chan struct{}
+
+func (m mutex) Lock() {
+	m <- struct{}{}
+}
+func (m mutex) Unlock() {
+	<-m
+}
+
 type SessionManager struct {
 	sessions map[string]Session
+	mutex    mutex
 }
 
 // Session stores the session's data
 type Session struct {
-	Data map[string]interface{}
-	Dead bool
+	Data       map[string]interface{}
+	LastUpdate time.Time
 }
 
 // NewSessionManager creates a new sessionManager
 func NewSessionManager() *SessionManager {
 	m := &SessionManager{
 		sessions: make(map[string]Session),
+		mutex:    make(chan struct{}, 1),
 	}
-
+	go m.SessionCleaner()
 	return m
 }
 
 // CreateSession creates a new session and returns the sessionID
 func (m *SessionManager) CreateSession() (string, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	sessionID, err := MakeSessionID()
 	if err != nil {
 		return "", err
 	}
 
 	m.sessions[sessionID] = Session{
-		Data: make(map[string]interface{}),
+		Data:       make(map[string]interface{}),
+		LastUpdate: time.Now(),
 	}
 
 	return sessionID, nil
@@ -65,6 +79,8 @@ var ErrSessionNotFound = errors.New("SessionID does not exists")
 // GetSessionData returns data related to session if sessionID is
 // found, errors otherwise
 func (m *SessionManager) GetSessionData(sessionID string) (map[string]interface{}, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	session, ok := m.sessions[sessionID]
 	if !ok {
 		return nil, ErrSessionNotFound
@@ -74,47 +90,42 @@ func (m *SessionManager) GetSessionData(sessionID string) (map[string]interface{
 
 // UpdateSessionData overwrites the old session data with the new one
 func (m *SessionManager) UpdateSessionData(sessionID string, data map[string]interface{}) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	_, ok := m.sessions[sessionID]
 	if !ok {
 		return ErrSessionNotFound
 	}
-	ch := make(chan bool)
-	// Hint: you should renew expiry of the session here
-	go counter(ch)
-	m.sessions[sessionID] = Session{
-		Data: data,
-	}
 
-	go deleter(ch, m, sessionID)
+	// Hint: you should renew expiry of the session here
+	m.sessions[sessionID] = Session{
+		Data:       data,
+		LastUpdate: time.Now(),
+	}
 
 	return nil
 }
 
-func deleter(channel chan bool, m *SessionManager, sessionID string) {
+func (m *SessionManager) SessionCleaner() {
 	for {
-		b := <-channel
-		if b == true {
-			delete(m.sessions, sessionID)
-			return
-		}
-	}
-}
+		m.mutex.Lock()
+		if len(m.sessions) > 0 {
+			for sessionID, session := range m.sessions {
+				if time.Since(session.LastUpdate) > time.Second*5 {
 
-func counter(channel chan bool) {
-	counter := 0
-	for {
-		time.Sleep(time.Second)
-		counter++
-		if counter > 4 {
-			channel <- true
-			return
+					delete(m.sessions, sessionID)
+
+				}
+			}
 		}
+		m.mutex.Unlock()
 	}
 }
 
 func main() {
 	// Create new sessionManager and new session
 	m := NewSessionManager()
+
 	sID, err := m.CreateSession()
 	if err != nil {
 		log.Fatal(err)
